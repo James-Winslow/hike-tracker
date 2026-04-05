@@ -78,10 +78,12 @@ def cmd_init(db_path: str):
 
     with open(SCHEMA_PATH) as f:
         sql = f.read()
-    # Execute statement by statement (DuckDB doesn't take full scripts in one call)
-    for stmt in sql.split(';'):
+    # Strip full-line comments, then split on semicolons
+    import re
+    sql_clean = re.sub(r'--[^\n]*', '', sql)  # remove all -- comments
+    for stmt in sql_clean.split(';'):
         stmt = stmt.strip()
-        if stmt and not stmt.startswith('--'):
+        if stmt:
             try:
                 con.execute(stmt)
             except Exception as e:
@@ -237,7 +239,7 @@ def cmd_status(db_path: str):
     con = get_db(db_path)
     total    = con.execute("SELECT COUNT(*) FROM hikes").fetchone()[0]
     attempts = con.execute("SELECT COUNT(DISTINCT hike_id) FROM hike_attempts WHERE actual_moving_min IS NOT NULL").fetchone()[0]
-    model_v  = con.execute("SELECT MAX(version_id), based_on_n_hikes, mu_log_pace FROM model_params ORDER BY version_id DESC LIMIT 1").fetchone()
+    model_v  = con.execute("SELECT version_id, based_on_n_hikes, mu_log_pace FROM model_params ORDER BY version_id DESC LIMIT 1").fetchone()
 
     print(f"\n── Hike Tracker Status ───────────────────────────────────────")
     print(f"  Hikes in catalog:    {total}")
