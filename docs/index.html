@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Colorado 14ers — Jimmy Winslow</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1f12;color:#e8f0d8}
+
+/* ── Layout ── */
+#app{display:flex;flex-direction:column;height:100vh}
+#header{background:#1a2510;border-bottom:1px solid #2d3d1a;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;z-index:100}
+#header h1{font-size:15px;font-weight:500;color:#c8e6a0;letter-spacing:0.02em}
+#header .sub{font-size:11px;color:#6b8f42;margin-left:4px}
+#progress-bar-wrap{flex:1;height:5px;background:#2d3d1a;border-radius:3px;margin:0 8px}
+#progress-bar{height:100%;border-radius:3px;background:#7cb342;transition:width 0.4s}
+#progress-label{font-size:11px;color:#7cb342;white-space:nowrap}
+#main{display:flex;flex:1;overflow:hidden}
+#map{flex:1;z-index:1}
+
+/* ── Sidebar ── */
+#sidebar{width:340px;background:#1a2510;border-left:1px solid #2d3d1a;display:flex;flex-direction:column;overflow:hidden;transition:transform 0.25s;z-index:200}
+#sidebar.hidden{transform:translateX(100%)}
+#sidebar-header{padding:14px 16px 10px;border-bottom:1px solid #2d3d1a;flex-shrink:0}
+#sidebar-title{font-size:16px;font-weight:500;color:#c8e6a0;margin-bottom:2px}
+#sidebar-meta{font-size:11px;color:#6b8f42}
+#sidebar-close{position:absolute;top:10px;right:12px;background:none;border:none;color:#6b8f42;font-size:20px;cursor:pointer;line-height:1;padding:4px}
+#sidebar-body{flex:1;overflow-y:auto;padding:14px 16px}
+
+/* ── Peak status badge ── */
+.status-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 10px;border-radius:12px;margin-bottom:12px;font-weight:500}
+.status-done{background:#1e3a0f;color:#7cb342;border:1px solid #3a6b1a}
+.status-car{background:#1e2f3a;color:#5b9bd5;border:1px solid #1a4a6b}
+.status-todo{background:#2d1a0f;color:#c87941;border:1px solid #6b3a1a}
+
+/* ── Prediction block ── */
+.pred-block{background:#0f1a08;border:1px solid #2d3d1a;border-radius:8px;padding:12px;margin-bottom:12px}
+.pred-time{font-size:28px;font-weight:500;color:#a8d870;letter-spacing:-0.5px}
+.pred-label{font-size:11px;color:#6b8f42;margin-top:1px}
+.ci-wrap{margin-top:10px}
+.ci-bar{height:5px;background:#2d3d1a;border-radius:3px;position:relative;margin:4px 0}
+.ci-fill{position:absolute;height:100%;border-radius:3px;background:#4a7a1a;opacity:0.5}
+.ci-dot{position:absolute;width:3px;height:9px;top:-2px;background:#7cb342;border-radius:2px}
+.ci-labels{display:flex;justify-content:space-between;font-size:10px;color:#5a7a35;margin-top:2px}
+.pred-breakdown{display:flex;gap:8px;margin-top:10px}
+.pred-comp{flex:1;background:#152010;border-radius:6px;padding:7px 9px}
+.pred-comp .val{font-size:14px;font-weight:500;color:#8fc455}
+.pred-comp .lbl{font-size:10px;color:#5a7a35;margin-top:1px}
+
+/* ── Condition sliders ── */
+.section-title{font-size:10px;font-weight:500;color:#5a7a35;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 8px}
+.cond-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cond-row label{font-size:12px;color:#8aab60;width:80px;flex-shrink:0}
+.cond-row input[type=range]{flex:1;accent-color:#7cb342}
+.cond-row .cond-val{font-size:12px;color:#c8e6a0;width:28px;text-align:right}
+.cond-select{width:100%;background:#0f1a08;border:1px solid #2d3d1a;border-radius:6px;color:#c8e6a0;font-size:12px;padding:6px 8px;margin-bottom:10px}
+
+/* ── Log form ── */
+.log-form{background:#0f1a08;border:1px solid #2d3d1a;border-radius:8px;padding:12px;margin-top:4px}
+.log-row{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}
+.log-row label{font-size:11px;color:#6b8f42}
+.log-row input,.log-row select,.log-row textarea{background:#152010;border:1px solid #2d3d1a;border-radius:5px;color:#c8e6a0;font-size:12px;padding:6px 8px;width:100%}
+.log-row textarea{height:60px;resize:vertical}
+.log-2col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn-primary{width:100%;padding:9px;background:#3a6b1a;border:none;border-radius:7px;color:#c8e6a0;font-size:13px;font-weight:500;cursor:pointer;margin-top:4px}
+.btn-primary:hover{background:#4a8a22}
+.btn-secondary{width:100%;padding:7px;background:transparent;border:1px solid #2d3d1a;border-radius:7px;color:#6b8f42;font-size:12px;cursor:pointer;margin-top:6px}
+
+/* ── Distribution chart ── */
+#dist-canvas-wrap{position:relative;height:70px;margin:10px 0 4px}
+#dist-canvas{width:100%;height:100%}
+
+/* ── Map markers ── */
+.leaflet-div-icon{border:none!important;background:none!important}
+.mk{width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,0.3);cursor:pointer;transition:transform 0.15s}
+.mk:hover{transform:scale(1.4)}
+.mk-done{background:#7cb342}
+.mk-car{background:#5b9bd5}
+.mk-todo{background:#c87941}
+.mk-next{background:#f4d03f;border-color:#a08020}
+.mk-selected{transform:scale(1.6)!important;border-color:#fff!important}
+
+/* ── Mobile ── */
+@media(max-width:700px){
+  #main{flex-direction:column}
+  #sidebar{width:100%;height:55vh;border-left:none;border-top:1px solid #2d3d1a;transform:translateY(100%)}
+  #sidebar.hidden{transform:translateY(100%)}
+  #sidebar.visible{transform:translateY(0)}
+  #map{flex:1;min-height:45vh}
+}
+@media(min-width:701px){
+  #sidebar{transform:translateX(100%)}
+  #sidebar.visible{transform:translateX(0)}
+}
+
+/* ── Legend ── */
+#legend{position:absolute;bottom:24px;left:12px;background:#1a2510ee;border:1px solid #2d3d1a;border-radius:8px;padding:10px 12px;z-index:500;font-size:11px}
+.leg-row{display:flex;align-items:center;gap:7px;margin:3px 0;color:#8aab60}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+/* ── Toast ── */
+#toast{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:#3a6b1a;color:#c8e6a0;padding:8px 18px;border-radius:20px;font-size:12px;opacity:0;transition:opacity 0.3s;z-index:9999;pointer-events:none}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>Colorado 14ers<span class="sub">Bayesian pace model · v1</span></h1>
+    <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+    <div id="progress-label"></div>
+  </div>
+  <div id="main">
+    <div id="map">
+      <div id="legend">
+        <div class="leg-row"><div class="leg-dot" style="background:#7cb342"></div>summited</div>
+        <div class="leg-row"><div class="leg-dot" style="background:#5b9bd5"></div>visited (no hike)</div>
+        <div class="leg-row"><div class="leg-dot" style="background:#f4d03f"></div>next targets</div>
+        <div class="leg-row"><div class="leg-dot" style="background:#c87941"></div>to do</div>
+      </div>
+      <div id="toast"></div>
+    </div>
+    <div id="sidebar" class="hidden">
+      <button id="sidebar-close">×</button>
+      <div id="sidebar-header">
+        <div id="sidebar-title">—</div>
+        <div id="sidebar-meta">—</div>
+      </div>
+      <div id="sidebar-body"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PEAKS = [
+  {id:'grays',name:'Grays Peak',elev:14270,lat:39.6338,lng:-105.8176,range:'Front Range',dist:8.0,gain:3000,class:1,status:'done'},
+  {id:'torreys',name:'Torreys Peak',elev:14267,lat:39.6430,lng:-105.8210,range:'Front Range',dist:8.0,gain:3000,class:1,status:'done'},
+  {id:'bierstadt',name:'Mt Bierstadt',elev:14060,lat:39.5828,lng:-105.7088,range:'Front Range',dist:7.0,gain:2850,class:2,status:'done'},
+  {id:'bluesky',name:'Mt Blue Sky',elev:14264,lat:39.5884,lng:-105.6438,range:'Front Range',dist:7.0,gain:2900,class:1,status:'done'},
+  {id:'longs',name:'Longs Peak',elev:14259,lat:40.2549,lng:-105.6153,range:'Front Range',dist:14.5,gain:5100,class:3,status:'done'},
+  {id:'pikes',name:'Pikes Peak',elev:14115,lat:38.8405,lng:-105.0442,range:'Front Range',dist:13.0,gain:4720,class:1,status:'car'},
+  {id:'quandary',name:'Quandary Peak',elev:14265,lat:39.3975,lng:-106.1060,range:'Tenmile',dist:6.75,gain:3450,class:1,status:'done'},
+  {id:'lincoln',name:'Mt Lincoln',elev:14286,lat:39.3515,lng:-106.1115,range:'Mosquito',dist:8.0,gain:2900,class:2,status:'done'},
+  {id:'cameron',name:'Mt Cameron',elev:14238,lat:39.3469,lng:-106.1186,range:'Mosquito',dist:8.0,gain:2900,class:1,status:'done'},
+  {id:'democrat',name:'Mt Democrat',elev:14148,lat:39.3395,lng:-106.1398,range:'Mosquito',dist:7.0,gain:2700,class:2,status:'done'},
+  {id:'bross',name:'Mt Bross',elev:14172,lat:39.3346,lng:-106.1075,range:'Mosquito',dist:8.0,gain:2900,class:2,status:'done'},
+  {id:'sherman',name:'Mt Sherman',elev:14036,lat:39.2253,lng:-106.1697,range:'Mosquito',dist:5.5,gain:2000,class:1,status:'done'},
+  {id:'elbert',name:'Mt Elbert',elev:14440,lat:39.1178,lng:-106.4454,range:'Sawatch',dist:9.5,gain:4700,class:1,status:'done'},
+  {id:'massive',name:'Mt Massive',elev:14421,lat:39.1875,lng:-106.4757,range:'Sawatch',dist:13.5,gain:4700,class:2,status:'done'},
+  {id:'harvard',name:'Mt Harvard',elev:14420,lat:38.9243,lng:-106.3204,range:'Sawatch',dist:12.0,gain:4500,class:2,status:'done'},
+  {id:'columbia',name:'Mt Columbia',elev:14073,lat:38.9037,lng:-106.2981,range:'Sawatch',dist:10.0,gain:4200,class:2,status:'done'},
+  {id:'yale',name:'Mt Yale',elev:14196,lat:38.8440,lng:-106.3143,range:'Sawatch',dist:9.0,gain:4020,class:2,status:'done'},
+  {id:'oxford',name:'Mt Oxford',elev:14153,lat:38.9648,lng:-106.3380,range:'Sawatch',dist:10.0,gain:4100,class:2,status:'done'},
+  {id:'belford',name:'Mt Belford',elev:14197,lat:38.9607,lng:-106.3606,range:'Sawatch',dist:10.0,gain:4200,class:2,status:'done'},
+  {id:'missouri',name:'Missouri Mountain',elev:14067,lat:38.9461,lng:-106.3783,range:'Sawatch',dist:10.0,gain:3900,class:2,status:'done'},
+  {id:'huron',name:'Huron Peak',elev:14003,lat:38.9455,lng:-106.4370,range:'Sawatch',dist:10.6,gain:3600,class:2,status:'done'},
+  {id:'princeton',name:'Mt Princeton',elev:14197,lat:38.7493,lng:-106.2420,range:'Sawatch',dist:12.0,gain:4900,class:2,status:'done'},
+  {id:'holycross',name:'Mt of the Holy Cross',elev:14009,lat:39.4672,lng:-106.4818,range:'Sawatch',dist:11.0,gain:4700,class:2,status:'done'},
+  {id:'laplata',name:'La Plata Peak',elev:14336,lat:39.0294,lng:-106.4730,range:'Sawatch',dist:10.0,gain:4500,class:2,status:'done'},
+  {id:'antero',name:'Mt Antero',elev:14269,lat:38.6743,lng:-106.2462,range:'Sawatch',dist:8.5,gain:3900,class:2,status:'next'},
+  {id:'shavano',name:'Mt Shavano',elev:14229,lat:38.6192,lng:-106.2393,range:'Sawatch',dist:9.0,gain:4400,class:2,status:'next'},
+  {id:'tabeguache',name:'Tabeguache Peak',elev:14155,lat:38.6256,lng:-106.2533,range:'Sawatch',dist:9.0,gain:4400,class:2,status:'next'},
+  {id:'uncompahgre',name:'Uncompahgre Peak',elev:14309,lat:38.0717,lng:-107.4622,range:'San Juan',dist:7.5,gain:2700,class:2,status:'todo'},
+  {id:'redcloud',name:'Redcloud Peak',elev:14034,lat:37.9410,lng:-107.4219,range:'San Juan',dist:9.0,gain:3300,class:2,status:'todo'},
+  {id:'sunshine',name:'Sunshine Peak',elev:14001,lat:37.9227,lng:-107.4257,range:'San Juan',dist:9.0,gain:3300,class:2,status:'todo'},
+  {id:'handies',name:'Handies Peak',elev:14048,lat:37.9126,lng:-107.5046,range:'San Juan',dist:10.0,gain:2900,class:2,status:'todo'},
+  {id:'wetterhorn',name:'Wetterhorn Peak',elev:14015,lat:38.0607,lng:-107.5107,range:'San Juan',dist:8.5,gain:2900,class:3,status:'todo'},
+  {id:'sneffels',name:'Mt Sneffels',elev:14150,lat:38.0035,lng:-107.7921,range:'San Juan',dist:6.5,gain:2900,class:3,status:'todo'},
+  {id:'eolus',name:'Mt Eolus',elev:14083,lat:37.6221,lng:-107.6222,range:'San Juan',dist:12.5,gain:4200,class:4,status:'todo'},
+  {id:'windom',name:'Windom Peak',elev:14082,lat:37.6213,lng:-107.5921,range:'San Juan',dist:12.5,gain:4200,class:4,status:'todo'},
+  {id:'sunlight',name:'Sunlight Peak',elev:14059,lat:37.6271,lng:-107.5982,range:'San Juan',dist:12.5,gain:4200,class:4,status:'todo'},
+  {id:'northeolus',name:'North Eolus',elev:14039,lat:37.6268,lng:-107.6219,range:'San Juan',dist:13.0,gain:4300,class:4,status:'todo'},
+  {id:'silverton1',name:'Gilpin Peak',elev:13694,lat:37.9765,lng:-107.6827,range:'San Juan',dist:7.0,gain:2800,class:3,status:'todo'},
+  {id:'wilson',name:'Mt Wilson',elev:14246,lat:37.8392,lng:-107.9917,range:'San Juan',dist:10.5,gain:4000,class:4,status:'todo'},
+  {id:'eldiente',name:'El Diente Peak',elev:14159,lat:37.8370,lng:-108.0053,range:'San Juan',dist:12.0,gain:4200,class:4,status:'todo'},
+  {id:'wilsonpeak',name:'Wilson Peak',elev:14017,lat:37.8598,lng:-107.9844,range:'San Juan',dist:14.5,gain:4200,class:4,status:'todo'},
+  {id:'pyramid',name:'Pyramid Peak',elev:14018,lat:39.0716,lng:-106.9502,range:'Elk Mountains',dist:8.0,gain:3800,class:4,status:'todo'},
+  {id:'maroon',name:'Maroon Peak',elev:14156,lat:39.0708,lng:-106.9892,range:'Elk Mountains',dist:9.5,gain:3600,class:4,status:'todo'},
+  {id:'northmaroon',name:'North Maroon Peak',elev:14014,lat:39.0785,lng:-106.9877,range:'Elk Mountains',dist:10.0,gain:3800,class:4,status:'todo'},
+  {id:'capitol',name:'Capitol Peak',elev:14130,lat:39.1503,lng:-107.0831,range:'Elk Mountains',dist:13.0,gain:4500,class:4,status:'todo'},
+  {id:'snowmass',name:'Snowmass Mountain',elev:14092,lat:39.1189,lng:-107.0661,range:'Elk Mountains',dist:14.0,gain:4500,class:3,status:'todo'},
+  {id:'conundrum',name:'Conundrum Peak',elev:14060,lat:39.0156,lng:-106.8635,range:'Elk Mountains',dist:10.5,gain:3800,class:3,status:'todo'},
+  {id:'blanca',name:'Blanca Peak',elev:14345,lat:37.5775,lng:-105.4855,range:'Sangre de Cristo',dist:11.0,gain:5500,class:3,status:'todo'},
+  {id:'ellingwood',name:'Ellingwood Point',elev:14042,lat:37.5828,lng:-105.4929,range:'Sangre de Cristo',dist:11.0,gain:5500,class:3,status:'todo'},
+  {id:'littlebear',name:'Little Bear Peak',elev:14037,lat:37.5666,lng:-105.4967,range:'Sangre de Cristo',dist:12.0,gain:5500,class:4,status:'todo'},
+  {id:'crestone',name:'Crestone Peak',elev:14294,lat:37.9668,lng:-105.5855,range:'Sangre de Cristo',dist:9.0,gain:4600,class:4,status:'todo'},
+  {id:'crestoneneedle',name:'Crestone Needle',elev:14197,lat:37.9646,lng:-105.5766,range:'Sangre de Cristo',dist:9.5,gain:4700,class:4,status:'todo'},
+  {id:'kitcarson',name:'Kit Carson Peak',elev:14165,lat:37.9794,lng:-105.6022,range:'Sangre de Cristo',dist:10.0,gain:4800,class:4,status:'todo'},
+  {id:'challenger',name:'Challenger Point',elev:14081,lat:37.9803,lng:-105.6069,range:'Sangre de Cristo',dist:10.0,gain:4800,class:3,status:'todo'},
+  {id:'humboldt',name:'Humboldt Peak',elev:14064,lat:37.9760,lng:-105.5554,range:'Sangre de Cristo',dist:10.5,gain:4800,class:2,status:'todo'},
+  {id:'lindsey',name:'Mt Lindsey',elev:14042,lat:37.5836,lng:-105.4440,range:'Sangre de Cristo',dist:9.5,gain:4700,class:3,status:'todo'},
+  {id:'culebra',name:'Culebra Peak',elev:14047,lat:37.1224,lng:-105.1860,range:'Sangre de Cristo',dist:7.5,gain:3100,class:2,status:'todo'},
+  {id:'hercules',name:'Hermit Peak',elev:13350,lat:36.9000,lng:-105.4130,range:'Sangre de Cristo',dist:7.5,gain:3100,class:2,status:'todo'},
+];
+
+const MODEL = {mu_log_pace: 3.152, sigma_log_pace: 0.239, elev_penalty_mu: 1.0, elev_penalty_sigma: 0.30};
+
+function toHHMM(min) {
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return h > 0 ? `${h}h ${m.toString().padStart(2,'0')}m` : `${m}m`;
+}
+
+function predict(peak, sleep=3, pack=20, condition='dry') {
+  const n = 10000;
+  const covAdj = (sleep - 3) * (-0.05) + Math.max(0, pack - 20) * 0.002
+    + (condition === 'snow_covered' ? 0.10 : condition === 'muddy' ? 0.05 : 0);
+  const mu = MODEL.mu_log_pace + covAdj;
+  const samples = [];
+  for (let i = 0; i < n; i++) {
+    const lp = mu + MODEL.sigma_log_pace * randn();
+    const ep = MODEL.elev_penalty_mu + MODEL.elev_penalty_sigma * randn();
+    samples.push(Math.exp(lp) * peak.dist + Math.max(0.3, ep) * (peak.gain / 100));
+  }
+  samples.sort((a,b) => a - b);
+  return {
+    median: samples[Math.floor(n * 0.50)],
+    lo90:   samples[Math.floor(n * 0.05)],
+    hi90:   samples[Math.floor(n * 0.95)],
+    lo80:   samples[Math.floor(n * 0.10)],
+    hi80:   samples[Math.floor(n * 0.90)],
+    flat:   Math.exp(mu) * peak.dist,
+    elev:   MODEL.elev_penalty_mu * (peak.gain / 100),
+    samples: samples,
+  };
+}
+
+let _z2 = null;
+function randn() {
+  if (_z2 !== null) { const z = _z2; _z2 = null; return z; }
+  const u = 1 - Math.random(), v = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  _z2 = Math.sqrt(-2 * Math.log(u)) * Math.sin(2 * Math.PI * v);
+  return z;
+}
+
+const done = PEAKS.filter(p => p.status === 'done').length;
+const total = PEAKS.filter(p => p.status !== 'car').length;
+document.getElementById('progress-bar').style.width = (done/58*100)+'%';
+document.getElementById('progress-label').textContent = `${done}/58 summited`;
+
+const map = L.map('map', {
+  center: [39.0, -105.8],
+  zoom: 7,
+  zoomControl: true,
+  attributionControl: true
+});
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Esri',
+  maxZoom: 16
+}).addTo(map);
+
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+  attribution: 'OpenTopoMap',
+  maxZoom: 15,
+  opacity: 0.45
+}).addTo(map);
+
+const markerMap = {};
+let selectedId = null;
+let currentPeak = null;
+let condSleep = 3, condPack = 20, condTrail = 'dry';
+
+const colorMap = {done:'#7cb342', car:'#5b9bd5', next:'#f4d03f', todo:'#c87941'};
+
+PEAKS.forEach(peak => {
+  const color = colorMap[peak.status] || '#c87941';
+  const icon = L.divIcon({
+    html: `<div class="mk mk-${peak.status}" style="background:${color}"></div>`,
+    className: '', iconAnchor: [7,7], iconSize: [14,14]
+  });
+  const m = L.marker([peak.lat, peak.lng], {icon}).addTo(map);
+  m.on('click', () => openPeak(peak));
+  markerMap[peak.id] = {marker: m, peak};
+});
+
+function openPeak(peak) {
+  if (selectedId) {
+    const prev = markerMap[selectedId];
+    if (prev) {
+      const el = prev.marker.getElement()?.querySelector('.mk');
+      if (el) el.classList.remove('mk-selected');
+    }
+  }
+  selectedId = peak.id;
+  currentPeak = peak;
+  const el = markerMap[peak.id]?.marker.getElement()?.querySelector('.mk');
+  if (el) el.classList.add('mk-selected');
+
+  document.getElementById('sidebar-title').textContent = peak.name;
+  document.getElementById('sidebar-meta').textContent =
+    `${peak.elev.toLocaleString()} ft · ${peak.range} · Class ${peak.class} · ${peak.dist} mi · +${peak.gain.toLocaleString()} ft`;
+
+  renderSidebar(peak);
+
+  const sb = document.getElementById('sidebar');
+  sb.classList.remove('hidden');
+  sb.classList.add('visible');
+}
+
+function renderSidebar(peak) {
+  const body = document.getElementById('sidebar-body');
+  const pred = predict(peak, condSleep, condPack, condTrail);
+
+  const statusLabel = peak.status === 'done' ? 'summited' :
+                      peak.status === 'car'  ? 'visited by car' :
+                      peak.status === 'next' ? 'next target' : 'to do';
+  const statusClass = peak.status === 'done' ? 'status-done' :
+                      peak.status === 'car'  ? 'status-car' :  'status-todo';
+
+  const ciPct = (v) => Math.round(((v - pred.lo90) / (pred.hi90 - pred.lo90)) * 100);
+  const medPct = ciPct(pred.median);
+  const lo80Pct = ciPct(pred.lo80);
+  const hi80Pct = ciPct(pred.hi80);
+
+  const canShowPred = peak.status !== 'done' || true;
+
+  body.innerHTML = `
+    <span class="status-badge ${statusClass}">${statusLabel}</span>
+
+    ${peak.status !== 'car' ? `
+    <div class="pred-block">
+      <div class="pred-time">${toHHMM(Math.round(pred.median))}</div>
+      <div class="pred-label">predicted moving time · model v1 · 29 hikes</div>
+      <div class="ci-wrap">
+        <div class="ci-bar">
+          <div class="ci-fill" style="left:0;width:100%"></div>
+          <div class="ci-fill" style="left:${lo80Pct}%;width:${hi80Pct-lo80Pct}%;opacity:0.7"></div>
+          <div class="ci-dot" style="left:calc(${medPct}% - 1px)"></div>
+        </div>
+        <div class="ci-labels">
+          <span>${toHHMM(Math.round(pred.lo90))}</span>
+          <span>90% credible interval</span>
+          <span>${toHHMM(Math.round(pred.hi90))}</span>
+        </div>
+      </div>
+      <div class="pred-breakdown">
+        <div class="pred-comp"><div class="val">${toHHMM(Math.round(pred.flat))}</div><div class="lbl">flat pace</div></div>
+        <div class="pred-comp"><div class="val">+${toHHMM(Math.round(pred.elev))}</div><div class="lbl">elevation</div></div>
+        <div class="pred-comp"><div class="val">${Math.round(peak.gain/peak.dist).toLocaleString()}</div><div class="lbl">ft/mi gain</div></div>
+      </div>
+      <div id="dist-canvas-wrap"><canvas id="dist-canvas"></canvas></div>
+    </div>
+
+    <div class="section-title">adjust conditions</div>
+    <div class="cond-row">
+      <label>sleep</label>
+      <input type="range" id="sl-sleep" min="1" max="5" step="1" value="${condSleep}">
+      <span class="cond-val" id="sl-sleep-val">${condSleep}/5</span>
+    </div>
+    <div class="cond-row">
+      <label>pack (lb)</label>
+      <input type="range" id="sl-pack" min="10" max="50" step="1" value="${condPack}">
+      <span class="cond-val" id="sl-pack-val">${condPack}</span>
+    </div>
+    <select class="cond-select" id="sl-trail">
+      <option value="dry" ${condTrail==='dry'?'selected':''}>dry trail</option>
+      <option value="muddy" ${condTrail==='muddy'?'selected':''}>muddy</option>
+      <option value="patchy_snow" ${condTrail==='patchy_snow'?'selected':''}>patchy snow</option>
+      <option value="snow_covered" ${condTrail==='snow_covered'?'selected':''}>snow covered</option>
+    </select>
+    ` : '<p style="font-size:12px;color:#6b8f42;margin-bottom:12px">Summit reached by vehicle — no hiking prediction.</p>'}
+
+    <div class="section-title">log an attempt</div>
+    <div class="log-form">
+      <div class="log-2col">
+        <div class="log-row">
+          <label>date</label>
+          <input type="date" id="log-date" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+        <div class="log-row">
+          <label>strava ID</label>
+          <input type="text" id="log-strava" placeholder="optional">
+        </div>
+      </div>
+      <div class="log-2col">
+        <div class="log-row">
+          <label>moving time (min)</label>
+          <input type="number" id="log-moving" placeholder="e.g. 217">
+        </div>
+        <div class="log-row">
+          <label>summit pause (min)</label>
+          <input type="number" id="log-pause" placeholder="e.g. 25" value="0">
+        </div>
+      </div>
+      <div class="log-2col">
+        <div class="log-row">
+          <label>sleep (1–5)</label>
+          <input type="number" id="log-sleep" min="1" max="5" placeholder="4">
+        </div>
+        <div class="log-row">
+          <label>pack weight (lb)</label>
+          <input type="number" id="log-pack" placeholder="22">
+        </div>
+      </div>
+      <div class="log-2col">
+        <div class="log-row">
+          <label>RPE (1–10)</label>
+          <input type="number" id="log-rpe" min="1" max="10" placeholder="7">
+        </div>
+        <div class="log-row">
+          <label>temp (°F)</label>
+          <input type="number" id="log-temp" placeholder="55">
+        </div>
+      </div>
+      <div class="log-row">
+        <label>trail condition</label>
+        <select id="log-cond">
+          <option value="dry">dry</option>
+          <option value="muddy">muddy</option>
+          <option value="patchy_snow">patchy snow</option>
+          <option value="snow_covered">snow covered</option>
+          <option value="icy">icy</option>
+        </select>
+      </div>
+      <div class="log-row">
+        <label>notes</label>
+        <textarea id="log-notes" placeholder="conditions, beta, how you felt..."></textarea>
+      </div>
+      <button class="btn-primary" id="log-submit">save attempt</button>
+      <button class="btn-secondary" id="log-mark-done">mark as summited (no data)</button>
+    </div>
+  `;
+
+  drawDist(pred.samples, pred.lo90, pred.hi90, pred.median);
+  wireConditions(peak);
+  wireLogForm(peak, pred);
+}
+
+function drawDist(samples, lo, hi, median) {
+  const canvas = document.getElementById('dist-canvas');
+  if (!canvas) return;
+  const wrap = document.getElementById('dist-canvas-wrap');
+  canvas.width = wrap.offsetWidth * 2;
+  canvas.height = wrap.offsetHeight * 2;
+  canvas.style.width = wrap.offsetWidth + 'px';
+  canvas.style.height = wrap.offsetHeight + 'px';
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const bins = 60;
+  const counts = new Array(bins).fill(0);
+  samples.forEach(s => {
+    const i = Math.min(bins-1, Math.floor(((s - lo) / (hi - lo)) * bins));
+    if (i >= 0) counts[i]++;
+  });
+  const maxCount = Math.max(...counts);
+
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = 20;
+  const chartW = W - pad*2, chartH = H - pad;
+
+  counts.forEach((c, i) => {
+    const x = pad + (i / bins) * chartW;
+    const bw = chartW / bins;
+    const bh = (c / maxCount) * chartH;
+    const pct = (i / bins);
+    ctx.fillStyle = pct < 0.1 || pct > 0.9 ? 'rgba(122,179,66,0.2)' : 'rgba(122,179,66,0.45)';
+    ctx.fillRect(x, H - pad - bh, bw - 1, bh);
+  });
+
+  const medX = pad + ((median - lo) / (hi - lo)) * chartW;
+  ctx.strokeStyle = '#7cb342';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4,3]);
+  ctx.beginPath();
+  ctx.moveTo(medX, 4);
+  ctx.lineTo(medX, H - pad);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#5a7a35';
+  ctx.font = `${20}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText(toHHMM(Math.round(lo)), pad, H - 2);
+  ctx.textAlign = 'right';
+  ctx.fillText(toHHMM(Math.round(hi)), W - pad, H - 2);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#7cb342';
+  ctx.fillText(toHHMM(Math.round(median)), medX, 14);
+}
+
+function wireConditions(peak) {
+  const slSleep = document.getElementById('sl-sleep');
+  const slPack  = document.getElementById('sl-pack');
+  const slTrail = document.getElementById('sl-trail');
+  if (!slSleep) return;
+
+  slSleep.addEventListener('input', () => {
+    condSleep = +slSleep.value;
+    document.getElementById('sl-sleep-val').textContent = condSleep+'/5';
+    refreshPred(peak);
+  });
+  slPack.addEventListener('input', () => {
+    condPack = +slPack.value;
+    document.getElementById('sl-pack-val').textContent = condPack;
+    refreshPred(peak);
+  });
+  slTrail.addEventListener('change', () => {
+    condTrail = slTrail.value;
+    refreshPred(peak);
+  });
+}
+
+function refreshPred(peak) {
+  const pred = predict(peak, condSleep, condPack, condTrail);
+  const el = document.querySelector('.pred-time');
+  if (el) el.textContent = toHHMM(Math.round(pred.median));
+  const lo = document.querySelector('.ci-labels span:first-child');
+  const hi = document.querySelector('.ci-labels span:last-child');
+  if (lo) lo.textContent = toHHMM(Math.round(pred.lo90));
+  if (hi) hi.textContent = toHHMM(Math.round(pred.hi90));
+  drawDist(pred.samples, pred.lo90, pred.hi90, pred.median);
+}
+
+function wireLogForm(peak, pred) {
+  document.getElementById('log-submit').addEventListener('click', () => {
+    const moving  = document.getElementById('log-moving').value;
+    const pause   = document.getElementById('log-pause').value || '0';
+    const date    = document.getElementById('log-date').value;
+    const strava  = document.getElementById('log-strava').value;
+    const sleep   = document.getElementById('log-sleep').value;
+    const pack    = document.getElementById('log-pack').value;
+    const rpe     = document.getElementById('log-rpe').value;
+    const temp    = document.getElementById('log-temp').value;
+    const cond    = document.getElementById('log-cond').value;
+    const notes   = document.getElementById('log-notes').value;
+
+    const attempt = {
+      hike_id: peak.id,
+      hike_name: peak.name,
+      attempt_date: date,
+      strava_activity_id: strava || null,
+      actual_moving_min: moving ? +moving : null,
+      summit_pause_min: +pause,
+      corrected_moving_min: moving ? +moving + +pause : null,
+      predicted_median_min: Math.round(pred.median),
+      predicted_lo90_min: Math.round(pred.lo90),
+      predicted_hi90_min: Math.round(pred.hi90),
+      sleep_quality: sleep ? +sleep : null,
+      pack_weight_lb: pack ? +pack : null,
+      rpe: rpe ? +rpe : null,
+      temperature_f: temp ? +temp : null,
+      trail_condition: cond,
+      notes: notes || null,
+      logged_at: new Date().toISOString(),
+    };
+
+    saveAttempt(attempt);
+    showToast(`Logged: ${peak.name} — ${toHHMM(+moving + +pause)} corrected`);
+  });
+
+  document.getElementById('log-mark-done').addEventListener('click', () => {
+    const attempt = {
+      hike_id: peak.id,
+      hike_name: peak.name,
+      attempt_date: document.getElementById('log-date').value,
+      logged_at: new Date().toISOString(),
+      notes: 'marked as summited — no timing data'
+    };
+    saveAttempt(attempt);
+    peak.status = 'done';
+    const mk = markerMap[peak.id]?.marker.getElement()?.querySelector('.mk');
+    if (mk) { mk.className = 'mk mk-done mk-selected'; }
+    updateProgress();
+    showToast(`${peak.name} marked as summited!`);
+  });
+}
+
+function saveAttempt(attempt) {
+  const key = 'hike_attempts_v1';
+  const existing = JSON.parse(localStorage.getItem(key) || '[]');
+  existing.push(attempt);
+  localStorage.setItem(key, JSON.stringify(existing));
+}
+
+function updateProgress() {
+  const done = PEAKS.filter(p => p.status === 'done').length;
+  document.getElementById('progress-bar').style.width = (done/58*100)+'%';
+  document.getElementById('progress-label').textContent = `${done}/58 summited`;
+}
+
+document.getElementById('sidebar-close').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.remove('visible');
+  document.getElementById('sidebar').classList.add('hidden');
+  if (selectedId) {
+    const el = markerMap[selectedId]?.marker.getElement()?.querySelector('.mk');
+    if (el) el.classList.remove('mk-selected');
+    selectedId = null;
+  }
+});
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+map.on('click', () => {
+  document.getElementById('sidebar').classList.remove('visible');
+  document.getElementById('sidebar').classList.add('hidden');
+});
+</script>
+</body>
+</html>

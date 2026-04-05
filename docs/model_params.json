@@ -1,0 +1,17 @@
+{
+  "model": {
+    "version_id": 1,
+    "based_on_n_hikes": 29,
+    "mu_log_pace": 3.151576742193398,
+    "sigma_log_pace": 0.23907687800801852,
+    "elev_penalty_mu": 1.0,
+    "elev_penalty_sigma": 0.3,
+    "beta_sleep": 0.0,
+    "beta_pack_weight": 0.0,
+    "beta_trail_snow": 0.1,
+    "beta_trail_mud": 0.05,
+    "implied_pace_min_mi": 23.37,
+    "notes": "Seeded from 29 real Strava hikes. Observed mean=23.5 min/mi. Conjugate update from Naismith prior."
+  },
+  "attempts": []
+}
