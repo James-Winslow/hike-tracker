@@ -29,51 +29,58 @@ SECONDS_PER_MINUTE = 60
 
 
 def parse_strava_csv(csv_path: str) -> list[dict]:
-    """
-    Read Strava activities.csv and normalize units to imperial.
-    Returns list of dicts ready for DB insert.
-    Strava exports distance in meters, elevation in meters.
-    """
     activities = []
     with open(csv_path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             activity_type = row.get('Activity Type', '').strip()
-            # Only import hike/walk/run — skip rides, swims, etc.
             if activity_type not in ('Hike', 'Walk', 'Run', 'Trail Run'):
                 continue
-
             try:
                 activity_id = int(row.get('Activity ID', 0))
-                date_str = row.get('Activity Date', '')
-                # Strava format: "Jan 15, 2024, 8:30:00 AM"
-                dt = _parse_strava_date(date_str)
+                date_str    = row.get('Activity Date', '')
+                dt          = _parse_strava_date(date_str)
 
-                dist_m = float(row.get('Distance', 0) or 0)
-                elev_m = float(row.get('Elevation Gain', 0) or 0)
-                moving_sec = int(float(row.get('Moving Time', 0) or 0))
+                # Index 17 wins for Distance (meters), index 15 for Elapsed Time
+                # DictReader last-duplicate rule works in our favor here
+                dist_m      = float(row.get('Distance', 0) or 0)
+                elev_m      = float(row.get('Elevation Gain', 0) or 0)
+                moving_sec  = int(float(row.get('Moving Time', 0) or 0))
                 elapsed_sec = int(float(row.get('Elapsed Time', 0) or 0))
-                avg_hr = _safe_int(row.get('Average Heart Rate'))
-                max_hr = _safe_int(row.get('Max Heart Rate'))
+                avg_hr      = _safe_int(row.get('Average Heart Rate'))
+                max_hr      = _safe_int(row.get('Max Heart Rate'))
+
+                # Weather — Strava stores in Celsius, convert to F
+                weather_temp_c = row.get('Weather Temperature', '').strip()
+                temp_f = None
+                if weather_temp_c:
+                    try:
+                        temp_f = round(float(weather_temp_c) * 9/5 + 32)
+                    except ValueError:
+                        pass
+
+                weather_cond = row.get('Weather Condition', '').strip() or None
+                perceived_effort = _safe_int(row.get('Perceived Exertion'))
 
                 activities.append({
-                    'activity_id':       activity_id,
-                    'strava_name':       row.get('Activity Name', '').strip(),
-                    'activity_type':     activity_type,
-                    'activity_date':     dt.date() if dt else None,
-                    'start_time':        dt.time() if dt else None,
-                    'distance_mi':       round(dist_m * METERS_TO_MILES, 3),
-                    'elevation_gain_ft': round(dist_m * METERS_TO_FEET) if False
-                                         else round(elev_m * METERS_TO_FEET),
-                    'moving_time_sec':   moving_sec,
-                    'elapsed_time_sec':  elapsed_sec,
-                    'average_hr':        avg_hr,
-                    'max_hr':            max_hr,
-                    'gpx_filename':      row.get('Filename', '').strip() or None,
+                    'activity_id':        activity_id,
+                    'strava_name':        row.get('Activity Name', '').strip(),
+                    'activity_type':      activity_type,
+                    'activity_date':      dt.date() if dt else None,
+                    'start_time':         dt.time() if dt else None,
+                    'distance_mi':        round(dist_m * METERS_TO_MILES, 3),
+                    'elevation_gain_ft':  round(elev_m * METERS_TO_FEET),
+                    'moving_time_sec':    moving_sec,
+                    'elapsed_time_sec':   elapsed_sec,
+                    'average_hr':         avg_hr,
+                    'max_hr':             max_hr,
+                    'gpx_filename':       row.get('Filename', '').strip() or None,
+                    'temperature_f':      temp_f,
+                    'weather_condition':  weather_cond,
+                    'perceived_exertion': perceived_effort,
                 })
             except (ValueError, TypeError) as e:
-                print(f"  Skipping row (parse error): {e} | row: {dict(list(row.items())[:4])}")
-
+                print(f"  Skipping row: {e} | {row.get('Activity Name','?')}")
     return activities
 
 
@@ -127,24 +134,27 @@ def ingest(csv_path: str, db_path: str, dry_run: bool = False):
             continue
 
         con.execute("""
-            INSERT INTO activities (
-                activity_id, strava_name, activity_type, activity_date, start_time,
-                distance_mi, elevation_gain_ft, moving_time_sec, elapsed_time_sec,
-                average_hr, max_hr, gpx_filename
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            act['activity_id'], act['strava_name'], act['activity_type'],
-            act['activity_date'], act['start_time'],
-            act['distance_mi'], act['elevation_gain_ft'],
-            act['moving_time_sec'], act['elapsed_time_sec'],
-            act['average_hr'], act['max_hr'], act['gpx_filename']
-        ])
+                    INSERT INTO activities (
+                        activity_id, strava_name, activity_type, activity_date, start_time,
+                        distance_mi, elevation_gain_ft, moving_time_sec, elapsed_time_sec,
+                        average_hr, max_hr, gpx_filename
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [
+                    act['activity_id'], act['strava_name'], act['activity_type'],
+                    act['activity_date'], act['start_time'],
+                    act['distance_mi'], act['elevation_gain_ft'],
+                    act['moving_time_sec'], act['elapsed_time_sec'],
+                    act['average_hr'], act['max_hr'], act['gpx_filename']
+                ])
         imported += 1
 
     con.execute("""
-        INSERT INTO strava_sync_log (source_file, activities_imported, activities_skipped)
-        VALUES (?, ?, ?)
-    """, [str(csv_path), imported, skipped])
+    INSERT INTO strava_sync_log (sync_id, source_file, activities_imported, activities_skipped)
+    VALUES (
+        (SELECT COALESCE(MAX(sync_id), 0) + 1 FROM strava_sync_log),
+        ?, ?, ?
+    )
+""", [str(csv_path), imported, skipped])
 
     con.close()
     print(f"Imported: {imported} | Skipped (already exist): {skipped}")
